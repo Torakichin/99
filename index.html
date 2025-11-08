@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>にゃんこ九九練習帳（v10）</title>
+
+<!-- 🐱 アイコン設定 -->
+<link rel="icon" type="image/jpeg" href="neko.jpg" />
+<link rel="apple-touch-icon" href="neko.jpg" />
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@2/dist/tesseract.min.js"></script>
+
+<style>
+:root{font-family:"Noto Sans JP",sans-serif}
+body{
+  margin:0;
+  background:url('kabe.jpg') repeat;
+  background-size:cover;
+  user-select:none;
+}
+#app{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:28px}
+.card{background:rgba(255,255,255,0.95);padding:22px;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.12);width:560px;max-width:95%}
+h1{margin:0 0 6px;font-size:26px;text-align:center}
+h2#modeTitle{margin:0 0 12px;text-align:center;color:#444;font-size:18px}
+#menu{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+button{cursor:pointer;border:0;border-radius:8px;padding:8px 14px;background:#1976d2;color:#fff;font-weight:700}
+button.secondary{background:#6c757d}
+button:disabled{opacity:0.5;cursor:not-allowed}
+
+#gameScreen{display:none;position:relative;margin-top:6px}
+#timer{position:fixed;top:6px;right:16px;background:rgba(255,255,255,0.9);padding:10px 14px;border-radius:10px;font-weight:800;font-size:22px;z-index:10}
+#progress{font-weight:700;font-size:17px;margin-left:8px;text-align:center}
+.problem{margin-top:18px;display:flex;align-items:center;gap:12px;justify-content:flex-start}
+#formula{font-size:30px;min-width:160px;text-align:center;width:100%}
+.canvas-wrap{display:flex;gap:10px;align-items:center;justify-content:center;position:relative}
+.canvas-box{border:2px dashed #9aa3ad;padding:8px;border-radius:8px;background:#fff;position:relative;overflow:hidden}
+canvas{
+  display:block;
+  border-radius:6px;
+  background:#fff;
+  touch-action:none;
+  position:relative;
+  z-index:1;
+}
+.stamp-canvas{
+  position:absolute;
+  left:8px;
+  top:8px;
+  z-index:0;
+}
+.canvas-box.disabled{
+  opacity:0.4;
+  pointer-events:none;
+}
+.flower-stamp{
+  position:absolute;
+  top:0;
+  left:0;
+  width:100%;
+  height:100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:3;
+  animation:popIn 0.6s ease-out forwards;
+}
+.flower-stamp img{
+  width:100%;
+  height:auto;
+  transform:scale(0);
+  opacity:0;
+  animation:popInImg 0.6s ease-out forwards;
+}
+@keyframes popInImg{
+  0%{transform:scale(0);opacity:0;}
+  70%{transform:scale(1.1);opacity:1;}
+  100%{transform:scale(1);opacity:1;}
+}
+.controls{margin-top:12px;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap}
+.resultBox{margin-top:12px;background:rgba(255,255,255,0.85);padding:10px;border-radius:8px;text-align:center}
+#ocrText{font-weight:700}
+#messageText{margin-top:6px;font-weight:800}
+#nyanko{position:fixed;bottom:42px;right:40px;width:120px;opacity:0.9;pointer-events:none;z-index:2}
+.speech{position:fixed;bottom:160px;right:150px;background:#fff;padding:8px 12px;border-radius:12px;border:2px solid #333;font-weight:800;display:none;z-index:3}
+#backTitle{display:none;margin-top:10px;background:#444}
+#rankBox{margin-top:12px;display:flex;gap:12px;align-items:center;justify-content:center}
+#rankBox img{width:110px;height:auto;border-radius:8px}
+.small{font-size:12px;color:#555;margin-top:6px;text-align:center}
+</style>
+</head>
+<body>
+<div id="app">
+<div class="card">
+<h1>にゃんこ九九練習帳</h1>
+<h2 id="modeTitle"></h2>
+
+<!-- タイトル画面 -->
+<div id="titleScreen">
+  <div id="menu">
+    <button data-mode="random">ランダム</button>
+    <button data-mode="1">一の段</button>
+    <button data-mode="2">二の段</button>
+    <button data-mode="3">三の段</button>
+    <button data-mode="4">四の段</button>
+    <button data-mode="5">五の段</button>
+    <button data-mode="6">六の段</button>
+    <button data-mode="7">七の段</button>
+    <button data-mode="8">八の段</button>
+    <button data-mode="9">九の段</button>
+  </div>
+  <p class="small">
+    「ランダム」は全問（1×1〜9×9）からランダムで9問出題します。<br>
+    解答は左：十の位 / 右：一の位（1桁の場合は右だけ記入）。
+  </p>
+</div>
+
+<!-- ゲーム画面 -->
+<div id="gameScreen">
+  <div id="progress">1 / 9</div>
+  <div id="timer">00:00</div>
+
+  <div class="problem">
+    <div id="formula">1 × 1 =</div>
+  </div>
+
+  <div class="canvas-wrap">
+    <div class="canvas-box" id="boxLeft">
+      <canvas id="drawLeft" width="96" height="144"></canvas>
+      <canvas id="stampLeft" class="stamp-canvas" width="96" height="144"></canvas>
+    </div>
+    <div class="canvas-box" id="boxRight">
+      <canvas id="drawRight" width="96" height="144"></canvas>
+      <canvas id="stampRight" class="stamp-canvas" width="96" height="144"></canvas>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="clearLeft" class="secondary">左を消去</button>
+    <button id="clearRight" class="secondary">右を消去</button>
+    <button id="clearBoth" class="secondary">両方消去</button>
+    <button id="checkBtn">判定</button>
+  </div>
+
+  <div class="resultBox">
+    OCR結果: <span id="ocrText">-</span>
+    <div id="messageText"></div>
+  </div>
+
+  <button id="backTitle">タイトルに戻る</button>
+  <div id="rankBox" style="display:none"></div>
+  <img id="nyanko" src="neko.webp" alt="にゃんこ">
+  <div class="speech" id="speechBubble"></div>
+</div>
+</div>
+</div>
+
+<script>
+const titleScreen=document.getElementById('titleScreen');
+const gameScreen=document.getElementById('gameScreen');
+const formulaEl=document.getElementById('formula');
+const ocrTextEl=document.getElementById('ocrText');
+const msgEl=document.getElementById('messageText');
+const timerEl=document.getElementById('timer');
+const speechEl=document.getElementById('speechBubble');
+const backBtn=document.getElementById('backTitle');
+const progressEl=document.getElementById('progress');
+const rankBox=document.getElementById('rankBox');
+const modeTitle=document.getElementById('modeTitle');
+const checkBtn=document.getElementById('checkBtn');
+
+const canvasL=document.getElementById('drawLeft');
+const canvasR=document.getElementById('drawRight');
+const stampL=document.getElementById('stampLeft');
+const stampR=document.getElementById('stampRight');
+const ctxL=canvasL.getContext('2d');
+const ctxR=canvasR.getContext('2d');
+const sctxL=stampL.getContext('2d');
+const sctxR=stampR.getContext('2d');
+const boxL=document.getElementById('boxLeft');
+const boxR=document.getElementById('boxRight');
+
+let problems=[],currentIndex=0,startTime=0,timerId=null,worker=null,ready=false,left,right,currentMode='',isChecking=false;
+
+document.querySelectorAll('#menu button').forEach(btn=>{
+  btn.addEventListener('click',()=>startGame(btn.getAttribute('data-mode')));
+});
+backBtn.addEventListener('click',()=>{
+  gameScreen.style.display='none';
+  titleScreen.style.display='block';
+  backBtn.style.display='none';
+  rankBox.style.display='none';
+  checkBtn.style.display='inline-block';
+  modeTitle.textContent='';
+});
+
+function startGame(mode){
+  titleScreen.style.display='none';
+  gameScreen.style.display='block';
+  rankBox.style.display='none';
+  checkBtn.style.display='inline-block';
+  checkBtn.disabled=false;
+  currentIndex=0;problems=[];
+  currentMode = mode==='random' ? 'ランダム' : `${["","一","二","三","四","五","六","七","八","九"][mode]}の段`;
+  modeTitle.textContent=currentMode;
+
+  if(mode==='random'){
+    let all=[];
+    for(let i=1;i<=9;i++)for(let j=1;j<=9;j++)all.push([i,j]);
+    all.sort(()=>Math.random()-0.5);
+    problems=all.slice(0,9);
+  }else{
+    const dan=parseInt(mode);
+    for(let i=1;i<=9;i++)problems.push([dan,i]);
+  }
+  updateProgress();
+  startTimer();
+  nextProblem();
+}
+
+function startTimer(){
+  startTime=Date.now();
+  clearInterval(timerId);
+  timerId=setInterval(()=>{
+    const e=Math.floor((Date.now()-startTime)/1000);
+    const mm=String(Math.floor(e/60)).padStart(2,'0');
+    const ss=String(e%60).padStart(2,'0');
+    timerEl.textContent=`${mm}:${ss}`;
+  },300);
+}
+function stopTimer(){
+  clearInterval(timerId);
+  const total=Math.floor((Date.now()-startTime)/1000);
+  const mm=String(Math.floor(total/60)).padStart(2,'0');
+  const ss=String(total%60).padStart(2,'0');
+  return{total,text:`${mm}:${ss}`};
+}
+
+function initCanvas(ctx,cv){
+  ctx.lineWidth=14;ctx.lineCap='round';ctx.strokeStyle='#000';
+  ctx.fillStyle='#fff';ctx.fillRect(0,0,cv.width,cv.height);
+}
+initCanvas(ctxL,canvasL);initCanvas(ctxR,canvasR);
+
+function setupDrawing(cv,ctx){
+  let draw=false,lastX=0,lastY=0;
+  const pos=e=>{
+    const r=cv.getBoundingClientRect();
+    if(e.touches)return{x:e.touches[0].clientX-r.left,y:e.touches[0].clientY-r.top};
+    return{x:e.clientX-r.left,y:e.clientY-r.top};
+  };
+  cv.addEventListener('mousedown',e=>{draw=true;const p=pos(e);lastX=p.x;lastY=p.y;});
+  cv.addEventListener('mousemove',e=>{if(!draw)return;const p=pos(e);ctx.beginPath();ctx.moveTo(lastX,lastY);ctx.lineTo(p.x,p.y);ctx.stroke();lastX=p.x;lastY=p.y;});
+  ['mouseup','mouseleave','touchend'].forEach(ev=>cv.addEventListener(ev,()=>draw=false));
+  cv.addEventListener('touchstart',e=>{e.preventDefault();draw=true;const p=pos(e);lastX=p.x;lastY=p.y;});
+  cv.addEventListener('touchmove',e=>{e.preventDefault();if(!draw)return;const p=pos(e);ctx.beginPath();ctx.moveTo(lastX,lastY);ctx.lineTo(p.x,p.y);ctx.stroke();lastX=p.x;lastY=p.y;});
+}
+setupDrawing(canvasL,ctxL);
+setupDrawing(canvasR,ctxR);
+
+function clearCanvas(ctx,cv,stampCtx){
+  initCanvas(ctx,cv);
+  stampCtx.clearRect(0,0,cv.width,cv.height);
+}
+function clearCanvasAll(){
+  clearCanvas(ctxL,canvasL,sctxL);
+  clearCanvas(ctxR,canvasR,sctxR);
+}
+
+function updateProgress(){
+  progressEl.textContent=`${Math.min(currentIndex+1,problems.length)} / ${problems.length}`;
+}
+function nextProblem(){
+  if(currentIndex>=problems.length){
+    const res=stopTimer();
+    formulaEl.textContent='お疲れさま！';
+    msgEl.innerHTML=`<strong>全問終了！</strong><br>かかった時間：${res.text}`;
+    checkBtn.style.display='none';
+    backBtn.style.display='inline-block';
+    showRank(res.total);
+    return;
+  }
+  [left,right]=problems[currentIndex];
+  formulaEl.textContent=`${left} × ${right} =`;
+  clearCanvasAll();
+  setMessage('');
+  setOcrText('-');
+  updateProgress();
+
+  const ans = left*right;
+  if(ans < 10){ boxL.classList.add('disabled'); }
+  else{ boxL.classList.remove('disabled'); }
+
+  checkBtn.disabled=false;
+}
+
+async function ensureWorker(){
+  if(ready)return;
+  worker=Tesseract.createWorker();
+  await worker.load();
+  await worker.loadLanguage('eng');
+  await worker.initialize('eng');
+  await worker.setParameters({tessedit_char_whitelist:'0123456789',tessedit_pageseg_mode:'10'});
+  ready=true;
+}
+function preprocess(cv){
+  const tmp=document.createElement('canvas');
+  tmp.width=120;tmp.height=180;
+  const t=tmp.getContext('2d');
+  t.fillStyle='#fff';t.fillRect(0,0,tmp.width,tmp.height);
+  t.drawImage(cv,0,0,tmp.width,tmp.height);
+  return tmp;
+}
+
+async function checkAnswer(){
+  if(isChecking)return;
+  isChecking=true;
+  checkBtn.disabled=true;
+  await ensureWorker();
+
+  const L=preprocess(canvasL),R=preprocess(canvasR);
+  const resL=await worker.recognize(L).catch(()=>({data:{text:''}}));
+  const resR=await worker.recognize(R).catch(()=>({data:{text:''}}));
+  const rawL=(resL.data?.text||'').trim();
+  const rawR=(resR.data?.text||'').trim();
+  setOcrText(`${rawL||'-'} | ${rawR||'-'}`);
+  const arrL=rawL.match(/[0-9]/g);
+  const arrR=rawR.match(/[0-9]/g);
+  const dL=arrL?parseInt(arrL[0],10):null;
+  const dR=arrR?parseInt(arrR[0],10):null;
+  if(dL===null&&dR===null){showSpeech('認識できませんでした');setMessage('認識できませんでした',false);isChecking=false;checkBtn.disabled=false;return;}
+  const ans=left*right,tens=Math.floor(ans/10),ones=ans%10;
+  let ok=false;
+  if(ans<10){ok=(dR===ones&&dL===null);}
+  else{ok=(dL===tens&&dR===ones);}
+  if(ok){
+    showSpeech('正解じゃ！');
+    setMessage('正解！',true);
+    showFlower(ans<10 ? [boxR] : [boxL,boxR]); // 🌸花丸追加
+    currentIndex++;
+    setTimeout(()=>{nextProblem();isChecking=false;},1200);
+  }else{
+    showSpeech('違うぞ');
+    setMessage('違うよ…',false);
+    isChecking=false;
+    checkBtn.disabled=false;
+  }
+}
+
+function showFlower(targetBoxes){
+  targetBoxes.forEach(box=>{
+    const stamp=document.createElement('div');
+    stamp.className='flower-stamp';
+    const img=document.createElement('img');
+    img.src='hanamaru.png';
+    stamp.appendChild(img);
+    box.appendChild(stamp);
+    setTimeout(()=>stamp.remove(),1000);
+  });
+}
+
+function showRank(sec){
+  rankBox.innerHTML='';
+  const img=document.createElement('img');
+  const label=document.createElement('div');
+  label.style.fontWeight='800';
+  if(sec<60){label.innerText='あなたは「鬼にゃんま」級です！素晴らしい！';img.src='oni.png';}
+  else if(sec<=120){label.innerText='あなたは「巨神ネコ」級です。そこそこすごい。';img.src='kyojin.png';}
+  else{label.innerText='あなたは「ネコ」級です。もう少し頑張りましょう。';img.src='neko.png';}
+  rankBox.appendChild(img);rankBox.appendChild(label);rankBox.style.display='flex';
+}
+
+function setOcrText(t){ocrTextEl.textContent=t;}
+function setMessage(t,ok=false){msgEl.textContent=t;msgEl.className=ok?'ok':'ng';}
+function showSpeech(t){speechEl.textContent=t;speechEl.style.display='block';setTimeout(()=>speechEl.style.display='none',1200);}
+
+/* === 各ボタン === */
+document.getElementById('clearLeft').addEventListener('click',()=>clearCanvas(ctxL,canvasL,sctxL));
+document.getElementById('clearRight').addEventListener('click',()=>clearCanvas(ctxR,canvasR,sctxR));
+document.getElementById('clearBoth').addEventListener('click',clearCanvasAll);
+document.getElementById('checkBtn').addEventListener('click',checkAnswer);
+</script>
+</body>
+</html>
